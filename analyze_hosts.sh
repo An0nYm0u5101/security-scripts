@@ -190,7 +190,7 @@ starttool() {
 # Parameters: tool
 ################################################################################
 checkfortool() {
-    if [[ ! $(which ${1}) ]] && [[! -r "${1}" ]] ; then
+    if [[ ! $(which $1 2>/dev/null) ]] && [[ ! -r "${1}" ]] ; then
         showstatus "ERROR: The program $1 could not be found" $RED
         tool=$ERROR
         exit
@@ -214,13 +214,13 @@ purgelogs() {
             fi
         fi
         if (($loglevel&$RAWLOGS)); then
-            grep -v '^[#%]' $logfile >> $outputfile
+            grep -v '^[#%]' "$logfile" >> "$outputfile"
         fi
-        if !(($loglevel&$SEPARATELOGS)); then rm -f $logfile 1>/dev/null 2>&1; fi
+        if !(($loglevel&$SEPARATELOGS)); then rm -f "$logfile" &>/dev/null; fi
     fi
     loglevel=$currentloglevel
     message=$defaultmessage
-    rm -f $resultsfile
+    rm -f "$resultsfile"
 }
 
 # clears logfiles
@@ -248,7 +248,7 @@ showstatus() {
     if [[ ! -z "$2" ]]; then
         case "$2" in
             $LOGFILE)
-                (($loglevel&$LOGFILE)) && echo "${linebuffer}$1" >> $outputfile
+                (($loglevel&$LOGFILE)) && echo "${linebuffer}$1" >> "$outputfile"
                 linebuffer="";;
             $NOLOGFILE)
                 !(($loglevel&$QUIET)) && echo "$1"
@@ -256,15 +256,15 @@ showstatus() {
             $NONEWLINE)
                 linebuffer="$1"
                 !(($loglevel&$QUIET)) && echo -n "$1"
-                (($loglevel&$LOGFILE)) && echo -n "$1" >> $outputfile;;
+                (($loglevel&$LOGFILE)) && echo -n "$1" >> "$outputfile";;
             (*)
                 prettyprint "$1" $2 $3
-                (($loglevel&$LOGFILE)) && echo "${linebuffer}${1}" >> $outputfile
+                (($loglevel&$LOGFILE)) && echo "${linebuffer}${1}" >> "$outputfile"
                 linebuffer="";;
         esac
     else
         !(($loglevel&$QUIET)) && echo "$1"
-        (($loglevel&$LOGFILE)) && echo "$1"|grep "." >> $outputfile
+        (($loglevel&$LOGFILE)) && echo "$1"|grep "." >> "$outputfile"
     fi
 }
 
@@ -336,8 +336,8 @@ startup() {
     showstatus "scanparameters: $options" $LOGFILE
     # set the default message status
     message=$defaultmessage
-    [[ -n "$workdir" ]] && pushd $workdir 1>/dev/null 2>&1
-    if ! [ -w $(pwd) ]; then
+    [[ -n "$workdir" ]] && pushd "$workdir" 1>/dev/null 2>&1
+    if ! [ -w "$(pwd)" ]; then
         showstatus "ERROR: cannot write to directory $(pwd)" $RED
         showstatus "       please specify writable directory using -d"
         exit
@@ -680,16 +680,16 @@ execute_all() {
         if [[ $target =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
             ip=$target
             local reverse=$(host $target|awk '{print $5}'|sed s'/[.]$//')
-            if [[ "$reverse" == "3(NXDOMAIN)" ]] ; then
+            if [[ "$reverse" == "3(NXDOMAIN)" ]] || [[ "$reverse" == "record" ]] ; then
                 showstatus "$target does not resolve to a PTR record" 
             else
                 showstatus "$target resolves to " $NONEWLINE
                 showstatus $reverse $BLUE
             fi
         else
-            whois ${target#*.} > $logfile
-            if [ -z $logfile ]; then
-                grep -q "No match for" $logfile && whois ${target%%*.} > $logfile
+            whois ${target#*.} > "$logfile"
+            if [ -z "$logfile" ]; then
+                grep -q "No match for" "$logfile" && whois ${target%%*.} > "$logfile"
                 # not all whois servers use the same formatting
                 showstatus "$(grep -iE '^(registra|date|admin |tech|name server)(.*):(.*)[^ ]$' $logfile)"
                 showstatus "$(awk '/Registrar( Technical Contacts)*:[ ]*$|(Domain )*[Nn]ameservers:[ ]*$|Technical:[ ]*$/{s=1}s; /^$/{s=0}' $logfile)"
@@ -706,8 +706,14 @@ execute_all() {
         fi
         purgelogs
         # not all versions of whois support -H (hide legal disclaimer)     
-        whois -H $ip 1>$logfile 2>/dev/null
-        showstatus "$(grep -iE '^(inetnum|netrange|netname|nettype|descr|orgname|orgid|originas|country|origin):(.*)[^ ]$' $logfile)"
+        whois -H $ip 1>"$logfile" 2>/dev/null
+
+        # TODO: refactor
+        if [[ "" == $(grep -iE '^(inetnum|netrange|netname|nettype|descr|orgname|orgid|originas|country|origin):(.*)[^ ]$' $logfile) ]]; then
+            showstatus "$(awk '!/#/' $logfile|awk 'NF')"
+        else
+            showstatus "$(grep -iE '^(inetnum|netrange|netname|nettype|descr|orgname|orgid|originas|country|origin):(.*)[^ ]$' $logfile)"
+        fi
         if [[ -n "$filter" ]]; then
             if grep -qiE "^(inetnum|netrange|netname|nettype|descr|orgname|orgid|originas|country|origin):.*($filter)" $logfile; then
                 message=$OK
@@ -733,11 +739,12 @@ execute_all() {
     (($sslscan>=$BASIC)) && do_sslscan
     (($trace>=$BASIC)) && do_trace
     (($webscan>=$BASIC)) && do_webscan
+    rm -f "$portselection" &>/dev/null
 }
 
 looptargets() {
     if [[ -s "$inputfile" ]]; then
-        total=$(grep -c . $inputfile)
+        total=$(grep -c . "$inputfile")
         local counter=1
         while read target; do
             if [[ ! -z "$target" ]]; then
@@ -933,7 +940,7 @@ while [[ $# -gt 0 ]]; do
         -o|--output)
             let "loglevel=loglevel|$LOGFILE"
             outputfile=$2
-            [[ ! $outputfile =~ ^/ ]] && outputfile=$(pwd)/$outputfile
+            [[ ! $outputfile =~ ^/ ]] && outputfile="$(pwd)/$outputfile"
             [[ -s $outputfile ]] && appendfile=1
             shift ;;
         --openssl)
@@ -983,7 +990,6 @@ if [[ ! -r "$inputfile" ]]; then
         echo "Nothing to do... no target specified"
         exit
     fi
-    umask 177
     if [[ -n "$workdir" ]]; then 
         [[ -d $workdir ]] || mkdir $workdir 1>/dev/null 2>&1
     fi
